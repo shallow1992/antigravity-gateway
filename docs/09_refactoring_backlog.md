@@ -1,10 +1,10 @@
 # 09. リファクタリング & 改善バックログ (Issues)
 
-本ドキュメントは、コードレビューにより洗い出された品質改善・保守性向上・セキュリティ強化のための GitHub Issue 一覧および完了記録です。
+本ドキュメントは、コードレビューおよびテスト基盤構築により洗い出された品質改善・保守性向上・セキュリティ強化・テスト自動化のための GitHub Issue 一覧および完了記録です。
 
 ---
 
-## 📋 Issue 一覧と進捗状況（全件完了 ✅）
+## 📋 Issue 一覧と進捗状況（全 9 件 完了 ✅）
 
 | Issue ID | 種別 | タイトル | 優先度 | 状態 | GitHub リンク | 詳細ファイル |
 | :---: | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -14,9 +14,14 @@
 | **#4** | Security | シークレットスキャナーのパターン拡充 (OpenAI / Anthropic / JWT等) | High | ✅ **完了 (Closed)** | [#4](https://github.com/shallow1992/antigravity-gateway/issues/4) | [issues/issue_04_secret_redaction_patterns.md](../issues/issue_04_secret_redaction_patterns.md) |
 | **#5** | Security | パストラバーサル判定の厳密化 (Path.is_relative_to) | High | ✅ **完了 (Closed)** | [#5](https://github.com/shallow1992/antigravity-gateway/issues/5) | [issues/issue_05_path_traversal_refinement.md](../issues/issue_05_path_traversal_refinement.md) |
 | **#6** | Operations | バックグラウンドタスクの安全な終了管理 (Graceful Shutdown改善) | Medium | ✅ **完了 (Closed)** | [#6](https://github.com/shallow1992/antigravity-gateway/issues/6) | [issues/issue_06_graceful_shutdown_tasks.md](../issues/issue_06_graceful_shutdown_tasks.md) |
+| **#7** | Test | Slackイベントハンドラーの結合テストスイート追加 (test_bot_handlers.py) | High | ✅ **完了 (Closed)** | [#7](https://github.com/shallow1992/antigravity-gateway/issues/7) | [issues/issue_07_bot_handlers_test.md](../issues/issue_07_bot_handlers_test.md) |
+| **#8** | Test | エージェントランナー非同期実行・タイムアウト・進捗スロットリングのテスト追加 | High | ✅ **完了 (Closed)** | [#8](https://github.com/shallow1992/antigravity-gateway/issues/8) | [issues/issue_08_agent_runner_test.md](../issues/issue_08_agent_runner_test.md) |
+| **#9** | Test & CI | 設定バリデーションテストおよび GitHub Actions 自動テスト CI の構築 | High | ✅ **完了 (Closed)** | [#9](https://github.com/shallow1992/antigravity-gateway/issues/9) | [issues/issue_09_config_test_and_ci.md](../issues/issue_09_config_test_and_ci.md) |
 
 ---
 
-## 🧪 テスト検証結果
+## 🧪 テスト検証 & GitHub Actions CI 結果
 
-全 **22件** の単体テスト（セキュリティ検査、パストラバーサル、シークレットマスキング、コマンドディスパッチ、FIFO履歴トリミング、タイムアウト等）を実行し、すべて **PASS** することを確認済みです。
+- **テスト件数**: 全 **32件** の単体・結合テストスイート
+- **Linter**: `ruff`（静的解析・型チェック・コードスタイル）
+- **CI 状態**: **SUCCESS ✅（オールグリーン）**
