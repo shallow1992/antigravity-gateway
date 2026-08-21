@@ -2,7 +2,7 @@
 
 import unittest
 from datetime import datetime, timedelta
-from src.session import ConversationSession, SessionManager
+from src.session import SessionManager
 
 
 class TestSessionManager(unittest.TestCase):
