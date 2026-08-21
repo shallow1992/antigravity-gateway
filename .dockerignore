@@ -1,18 +1,80 @@
-.git
+# ==============================================================================
+# Docker Ignore Configuration (antigravity-gateway)
+# コンテナイメージへの機密情報混入防止・ビルドコンテキスト軽量化
+# ==============================================================================
+
+# 1. Git 関連
+.git/
 .gitignore
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+.github/
+
+# 2. 環境変数・シークレット・秘密鍵 (最重要)
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.pfx
+*.p12
+*.pkcs12
+*.crt
+*.cer
+id_rsa*
+id_dsa*
+id_ed25519*
+id_ecdsa*
+server.key
+credentials.json
+service_account*.json
+*token*
+*secret*
+
+# 3. ログ & 出力成果物
+logs/
+artifacts/
+*.log
+audit.log
+gateway.log
+tmp/
+temp/
+*.tmp
+
+# 4. Python キャッシュ & 仮想環境
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
 env/
 venv/
 .venv/
-.env
-.env.*
-logs/
-artifacts/
+build/
+dist/
+*.egg-info/
+
+# 5. テスト・静的解析キャッシュ
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+htmlcov/
+
+# 6. ドキュメント & Issue バックログ (実行時不要)
+docs/
+issues/
+AGENTS.md
+
+# 7. OS & エディタ固有ファイル
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
 .vscode/
 .idea/
-docs/
+*.swp
+*.swo
+.cursor/
+.gemini/
