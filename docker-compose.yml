@@ -39,6 +39,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
+    # 7. Web ダッシュボード用ポート (ローカルホスト限定)
+    ports:
+      - "127.0.0.1:8080:8080"
+
     env_file:
       - .env
     environment:
@@ -51,5 +55,8 @@ services:
       # 成果物とログの永続化
       - ./artifacts:/app/artifacts:rw
       - ./logs:/app/logs:rw
-      # Antigravity 認証情報 (必要な場合)
-      - ~/.gemini:/home/appuser/.gemini:ro
+      # コンテナ専用の独立した認証ボリューム (ホストPCの機密情報から完全隔離)
+      - gemini_auth:/home/appuser/.gemini
+
+volumes:
+  gemini_auth:

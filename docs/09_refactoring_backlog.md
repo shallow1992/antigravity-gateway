@@ -4,7 +4,7 @@
 
 ---
 
-## 📋 Issue 一覧と進捗状況（全 11 件 完了 ✅）
+## 📋 Issue 一覧と進捗状況（全 12 件 完了 ✅）
 
 | Issue ID | 種別 | タイトル | 優先度 | 状態 | GitHub リンク | 詳細ファイル |
 | :---: | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -19,11 +19,12 @@
 | **#9** | Test & CI | 設定バリデーションテストおよび GitHub Actions 自動テスト CI の構築 | High | ✅ **完了 (Closed)** | [#9](https://github.com/shallow1992/antigravity-gateway/issues/9) | [issues/issue_09_config_test_and_ci.md](../issues/issue_09_config_test_and_ci.md) |
 | **#10** | Bug & Docker | Docker起動時の ModuleNotFoundError (src) 解消と Compose 構文警告修正 | High | ✅ **完了 (Closed)** | [#10](https://github.com/shallow1992/antigravity-gateway/issues/10) | [issues/issue_10_docker_pythonpath_and_compose_warning.md](../issues/issue_10_docker_pythonpath_and_compose_warning.md) |
 | **#11** | Bug & Docker | requirements.txt への pydantic-settings 不足によるインポートエラー修正 | High | ✅ **完了 (Closed)** | [#11](https://github.com/shallow1992/antigravity-gateway/issues/11) | [issues/issue_11_missing_pydantic_settings_in_requirements.md](../issues/issue_11_missing_pydantic_settings_in_requirements.md) |
+| **#12** | Architecture & Security | Antigravity CLI (agy) ラッパー ＆ Web ダッシュボード認証への刷新 | High | ✅ **完了 (Closed)** | [#12](https://github.com/shallow1992/antigravity-gateway/issues/12) | [issues/issue_12_container_isolated_auth_volume.md](../issues/issue_12_container_isolated_auth_volume.md) |
 
 ---
 
 ## 🧪 テスト検証 & GitHub Actions CI 結果
 
-- **テスト件数**: 全 **32件** の単体・結合テストスイート
+- **テスト件数**: 全 **39件** の単体・結合テストスイート（Web Dashboard, CLI Runner, 5層防御, Slack Pipeline）
 - **Linter**: `ruff`（静的解析・型チェック・コードスタイル）
 - **CI 状態**: **SUCCESS ✅（オールグリーン）**

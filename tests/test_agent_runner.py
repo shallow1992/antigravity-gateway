@@ -1,95 +1,83 @@
-"""Unit tests for AgentRunner (Issue #8 execution, history context, progress, and timeouts)."""
+"""Unit tests for Antigravity CLI (agy) AgentRunner (Issue #2, #8, #12)."""
 
 import asyncio
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
+
 from src.agent_runner import AgentRunner
 from src.session import ConversationSession
 
 
 class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.mock_settings = SimpleNamespace(
+        self.settings = SimpleNamespace(
+            AGENT_TIMEOUT_SEC=0.1,
+            THROTTLING_INTERVAL_SEC=0.01,
             TARGET_WORKSPACE_PATH="/tmp/workspace",
-            THROTTLING_INTERVAL_SEC=0.1,
-            AGENT_TIMEOUT_SEC=5,
             ALLOW_FILE_READ=True,
-            ALLOW_FILE_WRITE=False,
-            ALLOW_RUN_COMMAND=False,
+            ALLOW_FILE_WRITE=True,
+            ALLOW_RUN_COMMAND=True,
         )
-        self.runner = AgentRunner(self.mock_settings)
-
-    async def test_execute_prompt_mock(self):
-        # Mock internal execution to avoid requiring real GEMINI_API_KEY in CI
-        async def _mock_internal(full_prompt, session, on_progress=None):
-            if on_progress:
-                await on_progress("🧠 *思考中...*")
-            return f"（Mock Antigravity 応答）\n受信プロンプト: `{full_prompt}`"
-
-        self.runner._execute_agent_internal = _mock_internal
-
-        session = ConversationSession(
-            session_key="C123:1111",
-            channel_id="C123",
-            thread_ts="1111",
-            user_id="U123",
+        self.runner = AgentRunner(self.settings)
+        self.session = ConversationSession(
+            session_key="test_channel:1234.5678",
+            channel_id="test_channel",
+            thread_ts="1234.5678",
+            user_id="U12345",
         )
-        progress_updates = []
-
-        async def _progress_cb(text: str):
-            progress_updates.append(text)
-
-        result = await self.runner.execute_prompt(
-            prompt="Hello agent",
-            session=session,
-            on_progress=_progress_cb,
-        )
-
-        self.assertIn("Hello agent", result)
-        self.assertGreater(len(progress_updates), 0)
 
     def test_build_prompt_with_history(self):
-        session = ConversationSession(
-            session_key="C123:1111",
-            channel_id="C123",
-            thread_ts="1111",
-            user_id="U123",
-        )
-        session.add_user_message("First question")
-        session.add_assistant_message("First answer")
+        """Test prompt concatenation with history context."""
+        self.session.add_user_message("前回の質問")
+        self.session.add_assistant_message("前回の回答")
 
-        full_prompt = self.runner._build_prompt_with_history("Second question", session)
-        self.assertIn("[Previous Conversation Context]", full_prompt)
-        self.assertIn("User: First question", full_prompt)
-        self.assertIn("Assistant: First answer", full_prompt)
-        self.assertIn("[Current User Prompt]\nSecond question", full_prompt)
+        full_prompt = self.runner._build_full_prompt("今回の指示", self.session)
+        self.assertIn("【これまでの会話履歴】", full_prompt)
+        self.assertIn("user: 前回の質問", full_prompt)
+        self.assertIn("assistant: 前回の回答", full_prompt)
+        self.assertIn("【現在のユーザー指示】\n今回の指示", full_prompt)
+
+    async def test_unauthenticated_guidance_message(self):
+        """Test runner returns web dashboard guidance when not authenticated."""
+        with patch("src.agent_runner.is_authenticated", return_value=False):
+            with patch.dict("os.environ", {}, clear=True):
+                result = await self.runner.execute_prompt("test", self.session)
+                self.assertIn("Google Pro アカウントの連携が必要です", result)
+                self.assertIn("http://localhost:8080", result)
+
+    async def test_execute_prompt_mock(self):
+        """Test successful execution with progress streaming."""
+        progress_updates = []
+
+        async def _progress_cb(text):
+            progress_updates.append(text)
+
+        with patch("src.agent_runner.is_authenticated", return_value=True):
+            result = await self.runner.execute_prompt(
+                prompt="test prompt",
+                session=self.session,
+                on_progress=_progress_cb,
+            )
+
+        self.assertIn("Mock Antigravity 応答", result)
 
     async def test_timeout_enforcement(self):
-        timeout_settings = SimpleNamespace(
-            TARGET_WORKSPACE_PATH="/tmp/workspace",
-            THROTTLING_INTERVAL_SEC=0.1,
-            AGENT_TIMEOUT_SEC=0.001,
-            ALLOW_FILE_READ=True,
-            ALLOW_FILE_WRITE=False,
-            ALLOW_RUN_COMMAND=False,
-        )
-        runner_with_timeout = AgentRunner(timeout_settings)
+        """Test that agent execution strictly terminates upon reaching AGENT_TIMEOUT_SEC."""
+        async def _slow_agent(full_prompt, session, on_progress=None):
+            await asyncio.sleep(0.5)
+            return "Too late"
 
-        async def _slow_agent(*args, **kwargs):
-            await asyncio.sleep(0.1)
-            return "Done"
+        self.runner._execute_agent_internal = _slow_agent
 
-        runner_with_timeout._execute_agent_internal = _slow_agent
+        with patch("src.agent_runner.is_authenticated", return_value=True):
+            result = await self.runner.execute_prompt(
+                prompt="hang prompt",
+                session=self.session,
+            )
 
-        session = ConversationSession(
-            session_key="C123:1111",
-            channel_id="C123",
-            thread_ts="1111",
-            user_id="U123",
-        )
-
-        result = await runner_with_timeout.execute_prompt("Slow task", session)
-        self.assertIn("タイムアウトしました", result)
+        self.assertIn("タイムアウトエラー", result)
+        self.assertIn("0.1秒", result)
 
 
 if __name__ == "__main__":

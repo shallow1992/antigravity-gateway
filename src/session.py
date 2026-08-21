@@ -1,4 +1,4 @@
-"""Conversation Session Manager with TTL and FIFO history rotation (Issue #3)."""
+"""Conversation Session Manager with TTL and FIFO history rotation (Issue #3, #12)."""
 
 import logging
 from dataclasses import dataclass, field
@@ -42,6 +42,15 @@ class ConversationSession:
         self.history.append({"role": "assistant", "content": content})
         self._trim_history()
         self.touch()
+
+    def get_formatted_history(self) -> str:
+        """Format history list into a clean readable string for prompt context."""
+        lines = []
+        for msg in self.history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
 
     def _trim_history(self) -> None:
         """Keep only the latest max_history_turns messages to prevent memory/context explosion."""

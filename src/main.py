@@ -1,4 +1,4 @@
-"""Application entrypoint with Socket Mode, Auto-Join, and Graceful Task Shutdown (Issue #6)."""
+"""Application entrypoint with Socket Mode, Web Dashboard, Auto-Join, and Graceful Shutdown (Issue #6, #12)."""
 
 import asyncio
 import logging
@@ -18,6 +18,7 @@ from src.bot import create_app
 from src.config import get_settings
 from src.security import SecurityGuard
 from src.session import SessionManager
+from src.web_server import WebServerManager
 
 
 def setup_logging(log_level: str, log_file_path: str):
@@ -69,7 +70,7 @@ async def auto_join_public_channels(app, logger):
 
 
 async def main():
-    """Initialize and run the Antigravity Gateway."""
+    """Initialize and run the Antigravity Gateway with Socket Mode and Web Dashboard."""
     try:
         settings = get_settings()
     except Exception as e:
@@ -80,10 +81,10 @@ async def main():
     logger = logging.getLogger("gateway.main")
 
     logger.info("==================================================")
-    logger.info("🚀 Starting Antigravity Gateway (Socket Mode)")
+    logger.info("🚀 Starting Antigravity Gateway (CLI Wrapper & Web Dashboard)")
     logger.info(f"📁 Target Workspace: {settings.TARGET_WORKSPACE_PATH}")
     logger.info(f"🎛️  Session Mode: {settings.SESSION_MODE.upper()}")
-    logger.info(f"🤖 Auto-Join Channels: {settings.AUTO_JOIN_CHANNELS}")
+    logger.info("🌐 Web Dashboard: http://localhost:8080")
     logger.info(f"⏱️  Agent Timeout: {settings.AGENT_TIMEOUT_SEC}s / Max Turns: {settings.MAX_HISTORY_TURNS}")
     logger.info(f"🔒 Allowed Users: {settings.allowed_user_ids or 'All (Wildcard)'}")
     logger.info(f"💬 Allowed Channels: {settings.allowed_channel_ids or 'All'}")
@@ -105,6 +106,14 @@ async def main():
         max_history_turns=settings.MAX_HISTORY_TURNS,
     )
     agent_runner = AgentRunner(settings=settings)
+
+    # Initialize and start Web Dashboard
+    web_server = WebServerManager(
+        host="0.0.0.0",
+        port=8080,
+        target_workspace=settings.TARGET_WORKSPACE_PATH,
+    )
+    await web_server.start()
 
     # Create Slack App
     app = create_app(
@@ -149,8 +158,9 @@ async def main():
     except asyncio.CancelledError:
         pass
     finally:
-        logger.info("Closing Socket Mode connection and cleaning up background tasks...")
+        logger.info("Closing Socket Mode connection, Web Dashboard, and background tasks...")
         await handler.close_async()
+        await web_server.stop()
 
         # Cancel all remaining background tasks cleanly
         for task in background_tasks:
