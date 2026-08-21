@@ -1,7 +1,8 @@
-"""Integration tests for Slack Bolt event routing and message pipeline (Issue #7)."""
+"""Integration tests for Slack Bolt event routing and message pipeline (Issue #7, #12)."""
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from src.agent_runner import AgentRunner
 from src.converter import convert_gfm_to_slack_mrkdwn, split_message_for_slack
@@ -96,8 +97,10 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
         resp = await self.mock_client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text="🧠 *考え中...*")
         placeholder_ts = resp["ts"]
 
-        # 4. Agent execution
-        response_text = await self.agent_runner.execute_prompt(prompt=prompt, session=session)
+        # 4. Agent execution (with authenticated state)
+        with patch("src.agent_runner.is_authenticated", return_value=True):
+            response_text = await self.agent_runner.execute_prompt(prompt=prompt, session=session)
+
         formatted_response = convert_gfm_to_slack_mrkdwn(response_text)
         safe_response = self.security_guard.mask_secrets(formatted_response)
         chunks = split_message_for_slack(safe_response)

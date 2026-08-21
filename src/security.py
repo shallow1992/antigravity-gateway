@@ -1,123 +1,114 @@
-"""Security and Authorization Guard module."""
+"""Security Guard implementing the 5-layer defense model."""
 
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Optional, Set
 
 logger = logging.getLogger("gateway.security")
 
-# Regex patterns for identifying common API keys, tokens, and credentials to mask
-SECRET_PATTERNS = [
-    # Slack Tokens
-    (re.compile(r"xoxb-[0-9]{10,14}-[0-9]{10,14}-[a-zA-Z0-9]{24}"), "[REDACTED_SLACK_BOT_TOKEN]"),
-    (re.compile(r"xapp-[0-9]-[a-zA-Z0-9]+-[0-9]+-[a-zA-Z0-9]+"), "[REDACTED_SLACK_APP_TOKEN]"),
-    (re.compile(r"xoxp-[0-9]{10,14}-[0-9]{10,14}-[a-zA-Z0-9]{24}"), "[REDACTED_SLACK_USER_TOKEN]"),
-    # Google / Gemini API Keys
-    (re.compile(r"AIza[0-9A-Za-z-_]{35}"), "[REDACTED_GEMINI_API_KEY]"),
-    # GitHub Personal Access Tokens
-    (re.compile(r"ghp_[a-zA-Z0-9]{36}"), "[REDACTED_GITHUB_TOKEN]"),
-    (re.compile(r"github_pat_[a-zA-Z0-9_]{82}"), "[REDACTED_GITHUB_PAT]"),
-    # Anthropic API Keys (checked before generic sk- to prevent prefix collision)
-    (re.compile(r"sk-ant-[a-zA-Z0-9_-]{32,}"), "[REDACTED_ANTHROPIC_API_KEY]"),
-    # OpenAI API Keys
-    (re.compile(r"sk-(?!ant-)(?:proj-)?[a-zA-Z0-9_-]{32,}"), "[REDACTED_OPENAI_API_KEY]"),
-    # Generic Bearer Tokens
-    (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{25,}", re.IGNORECASE), "Bearer [REDACTED_BEARER_TOKEN]"),
-    # AWS Access Keys
-    (re.compile(r"(?:AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]"),
-    # Generic Private Keys
-    (
-        re.compile(r"-----BEGIN [A-Z ]+ PRIVATE KEY-----[^-]+-----END [A-Z ]+ PRIVATE KEY-----", re.DOTALL),
-        "[REDACTED_PRIVATE_KEY]",
-    ),
-]
-
-# Sensitive file and directory blacklists
-BLOCKED_FILE_PATTERNS = [
-    re.compile(r"^\.env(\..+)?$", re.IGNORECASE),
-    re.compile(r"^.*\.(pem|key|pfx|p12|pkcs12)$", re.IGNORECASE),
-    re.compile(r"^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$", re.IGNORECASE),
-    re.compile(r"^credentials\.json$", re.IGNORECASE),
-    re.compile(r"^service_account.*\.json$", re.IGNORECASE),
-    re.compile(r"^\.git/config$", re.IGNORECASE),
-]
-
-# Prohibited destructive / external commands
-BLOCKED_COMMAND_PREFIXES = [
-    "rm -rf /",
-    "rm -rf *",
-    "mkfs",
-    "dd if=",
-    "chmod -R 777",
-    "chown -R",
-    ":(){ :|:& };:",  # Fork bomb
-    "sudo",
-]
-
 
 class SecurityGuard:
-    """Handles authentication, authorization, secret redaction, and audit logging."""
+    """Security Guard providing User Whitelist, Channel Check, Safe Path Validation,
+
+    Secret Redaction, and Audit Logging.
+    """
+
+    # Secret masking patterns (Slack tokens, Gemini/OpenAI/Anthropic keys, OAuth tokens)
+    SECRET_PATTERNS = [
+        (re.compile(r"xoxb-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,32}"), "[REDACTED_SLACK_BOT_TOKEN]"),
+        (re.compile(r"xapp-[0-9]-[a-zA-Z0-9]+-[0-9]+-[a-zA-Z0-9]+"), "[REDACTED_SLACK_APP_TOKEN]"),
+        (re.compile(r"xoxp-[0-9]{10,13}-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,32}"), "[REDACTED_SLACK_USER_TOKEN]"),
+        (re.compile(r"AIza[0-9A-Za-z-_]{35}"), "[REDACTED_GEMINI_API_KEY]"),
+        (re.compile(r"sk-ant-[a-zA-Z0-9_-]{20,}"), "[REDACTED_ANTHROPIC_API_KEY]"),
+        (re.compile(r"sk-[a-zA-Z0-9_-]{20,}"), "[REDACTED_OPENAI_API_KEY]"),
+        (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{20,}", re.IGNORECASE), "Bearer [REDACTED_BEARER_TOKEN]"),
+        (re.compile(r"ghp_[a-zA-Z0-9]{36}"), "[REDACTED_GITHUB_TOKEN]"),
+        (re.compile(r"AKIA[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]"),
+        (re.compile(r"\"(access_token|refresh_token)\"\s*:\s*\"[^\"]+\""), r'"\1": "[REDACTED_OAUTH_TOKEN]"'),
+    ]
+
+    # Sensitive files and patterns forbidden from agent file tools
+    BLOCKED_FILE_PATTERNS = [
+        re.compile(r"\.env(\..+)?$", re.IGNORECASE),
+        re.compile(r".*\.pem$", re.IGNORECASE),
+        re.compile(r".*\.key$", re.IGNORECASE),
+        re.compile(r".*id_rsa.*", re.IGNORECASE),
+        re.compile(r".*credentials\.json$", re.IGNORECASE),
+        re.compile(r".*jetski-standalone-oauth-token.*", re.IGNORECASE),
+        re.compile(r".*oauth.*token.*", re.IGNORECASE),
+    ]
+
+    # Dangerous command patterns forbidden from command execution tool
+    DANGEROUS_COMMAND_PATTERNS = [
+        re.compile(r"rm\s+-rf\s+/"),
+        re.compile(r"\bmkfs\b"),
+        re.compile(r"\bdd\s+if="),
+        re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),  # Fork bomb
+        re.compile(r"\bshutdown\b"),
+        re.compile(r"\breboot\b"),
+        re.compile(r"\bsudo\b"),
+    ]
 
     def __init__(
         self,
         allowed_user_ids: Set[str],
         allowed_channel_ids: Set[str],
-        audit_log_path: str = "./logs/audit.log",
+        audit_log_path: str = "/app/logs/audit.log",
     ):
         self.allowed_user_ids = allowed_user_ids
         self.allowed_channel_ids = allowed_channel_ids
         self.audit_log_path = audit_log_path
 
         # Ensure audit log directory exists
-        Path(audit_log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.audit_log_path).parent.mkdir(parents=True, exist_ok=True)
 
-    def is_user_authorized(self, user_id: Optional[str]) -> bool:
-        """Check if the given Slack user ID is authorized."""
-        if not user_id:
-            return False
+    def is_user_authorized(self, user_id: str) -> bool:
+        """Check if a user is in the allowed whitelist."""
         if not self.allowed_user_ids or "*" in self.allowed_user_ids:
             return True
         return user_id in self.allowed_user_ids
 
-    def is_channel_allowed(self, channel_id: Optional[str], is_dm: bool = False) -> bool:
-        """Check if interaction in the given channel is allowed."""
+    def is_channel_allowed(self, channel_id: str, is_dm: bool = False) -> bool:
+        """Check if a channel is allowed.
+
+        DMs are always allowed unless explicitly restricted.
+        """
         if is_dm:
             return True
-        if not channel_id:
-            return False
-        if not self.allowed_channel_ids or "*" in self.allowed_channel_ids:
+        if not self.allowed_channel_ids:
             return True
         return channel_id in self.allowed_channel_ids
 
-    def mask_secrets(self, text: str) -> str:
-        """Redact known API keys, tokens, and private keys from the text."""
-        if not text:
-            return text
-        sanitized = text
-        for pattern, replacement in SECRET_PATTERNS:
-            sanitized = pattern.sub(replacement, sanitized)
-        return sanitized
+    def is_safe_file_path(
+        self,
+        target_path: str,
+        root_workspace: Optional[str] = None,
+        workspace_root: Optional[str] = None,
+    ) -> bool:
+        """Verify path is strictly within workspace and does not point to sensitive files.
 
-    def is_safe_file_path(self, file_path: str, workspace_root: str = "/workspace") -> bool:
-        """Validate that a file path is strictly within workspace using Path.is_relative_to."""
+        Uses Path.is_relative_to for robust path traversal prevention (Issue #5).
+        Allows GEMINI.md and rule markdown files while strictly blocking auth tokens.
+        """
+        effective_root = root_workspace or workspace_root or "/workspace"
         try:
-            target = Path(file_path).resolve()
-            root = Path(workspace_root).resolve()
+            target = Path(target_path).resolve()
+            root = Path(effective_root).resolve()
 
-            # Strict Path traversal check using is_relative_to (Python 3.9+)
+            # Robust Path Traversal Prevention
             if not target.is_relative_to(root):
-                logger.warning(f"Blocked path traversal attempt: {file_path} (root: {workspace_root})")
+                logger.warning(
+                    f"Blocked path traversal attempt: {target} (root: {root})"
+                )
                 return False
 
-            # Check against blocked file patterns
-            filename = target.name
-            rel_path = str(target.relative_to(root))
-            for pattern in BLOCKED_FILE_PATTERNS:
-                if pattern.match(filename) or pattern.match(rel_path):
-                    logger.warning(f"Blocked sensitive file access: {file_path}")
+            # Check sensitive file patterns first
+            for pattern in self.BLOCKED_FILE_PATTERNS:
+                if pattern.search(str(target)):
+                    logger.warning(f"Blocked sensitive file access: {target}")
                     return False
 
             return True
@@ -125,34 +116,42 @@ class SecurityGuard:
             logger.error(f"Error checking file path safety: {e}")
             return False
 
-    def is_safe_command(self, command_line: str) -> bool:
-        """Check if a shell command contains known dangerous commands."""
-        normalized = command_line.strip().lower()
-        for prefix in BLOCKED_COMMAND_PREFIXES:
-            if prefix in normalized:
-                logger.warning(f"Blocked dangerous command: {command_line}")
+    def is_safe_command(self, command: str) -> bool:
+        """Check if a terminal command is safe to execute."""
+        for pattern in self.DANGEROUS_COMMAND_PATTERNS:
+            if pattern.search(command):
+                logger.warning(f"Blocked dangerous command: {command}")
                 return False
         return True
 
-    def record_audit_log(
+    def mask_secrets(self, text: str) -> str:
+        """Scan and mask any secrets, tokens, or API keys in outgoing text."""
+        masked_text = text
+        for pattern, replacement in self.SECRET_PATTERNS:
+            masked_text = pattern.sub(replacement, masked_text)
+        return masked_text
+
+    def write_audit_log(
         self,
+        event_type: str,
         user_id: str,
         channel_id: str,
-        thread_ts: Optional[str],
-        action: str,
-        details: Dict[str, Any],
-    ) -> None:
-        """Write an audit entry to the audit log file."""
-        entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+        command_or_prompt: str,
+        status: str,
+        details: Optional[dict] = None,
+    ):
+        """Append an event to the structured audit log."""
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
             "user_id": user_id,
             "channel_id": channel_id,
-            "thread_ts": thread_ts,
-            "action": action,
-            "details": details,
+            "command_or_prompt": self.mask_secrets(command_or_prompt),
+            "status": status,
+            "details": details or {},
         }
         try:
             with open(self.audit_log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
         except Exception as e:
-            logger.error(f"Failed to write audit log: {e}")
+            logger.error(f"Failed to write to audit log: {e}")
