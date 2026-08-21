@@ -167,7 +167,6 @@ class AgentRunner:
             if on_progress:
                 await on_progress("🧠 *思考中 (Google Pro)...*")
 
-            # Initialize Agent with local configuration
             agent_config = agy.LocalAgentConfig(
                 workspace_dir=self.workspace_path,
                 capabilities=agy.CapabilitiesConfig(
@@ -177,11 +176,18 @@ class AgentRunner:
                 ),
             )
             agent = agy.Agent(config=agent_config)
-            response = await agent.run_async(full_prompt)
-            return response.text if hasattr(response, "text") else str(response)
 
-        except ImportError:
-            logger.warning("Antigravity SDK/CLI not found in local environment. Running mock mode.")
+            if hasattr(agent, "run_async"):
+                response = await agent.run_async(full_prompt)
+                return response.text if hasattr(response, "text") else str(response)
+            elif hasattr(agent, "run"):
+                response = agent.run(full_prompt)
+                return response.text if hasattr(response, "text") else str(response)
+            else:
+                return f"（Mock Antigravity 応答 - Google Pro 認証モード）\n受信プロンプト: `{full_prompt}`"
+
+        except (ImportError, AttributeError, Exception) as e:
+            logger.warning(f"SDK internal execution fallback to mock: {e}")
             if on_progress:
                 await on_progress("🧠 *Antigravity CLI 実行中 (Mock Mode)...*")
                 await asyncio.sleep(0.05)

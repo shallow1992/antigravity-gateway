@@ -72,7 +72,7 @@ def get_auth_account_email() -> Optional[str]:
         return None
 
 
-DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
+DASHBOARD_HTML_RAW = """<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -120,14 +120,14 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
             <h1>Antigravity Gateway 管理ダッシュボード</h1>
         </div>
 
-        {alert_html}
+        __ALERT_HTML__
 
         <div class="section">
             <div class="section-title">Google Pro 認証ステータス</div>
             <div>
-                {auth_badge}
+                __AUTH_BADGE__
             </div>
-            {auth_action_button}
+            __AUTH_ACTION_BUTTON__
         </div>
 
         <div class="section">
@@ -143,7 +143,7 @@ DASHBOARD_HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 <div class="info-card">
                     <div class="info-label">操作対象ワークスペース</div>
-                    <div class="info-val">{workspace_path}</div>
+                    <div class="info-val">__WORKSPACE_PATH__</div>
                 </div>
                 <div class="info-card">
                     <div class="info-label">セキュリティ防壁</div>
@@ -202,12 +202,11 @@ class WebServerManager:
             badge = '<div class="status-badge status-disconnected"><span class="dot"></span> 🔴 未連携 (Google Pro 認証が必要です)</div>'
             btn = '<a href="/auth/login" class="btn btn-primary">Google アカウントでログイン (Pro 連携)</a>'
 
-        html = DASHBOARD_HTML_TEMPLATE.format(
-            auth_badge=badge,
-            auth_action_button=btn,
-            workspace_path=self.target_workspace,
-            alert_html=alert_html,
-        )
+        html = DASHBOARD_HTML_RAW.replace("__AUTH_BADGE__", badge)
+        html = html.replace("__AUTH_ACTION_BUTTON__", btn)
+        html = html.replace("__WORKSPACE_PATH__", str(self.target_workspace))
+        html = html.replace("__ALERT_HTML__", alert_html)
+
         return web.Response(text=html, content_type="text/html")
 
     async def handle_auth_login(self, request):
