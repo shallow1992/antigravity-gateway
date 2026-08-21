@@ -1,4 +1,4 @@
-"""Conversation Session Manager with TTL and multi-turn history tracking (supporting thread and channel modes)."""
+"""Conversation Session Manager with TTL and FIFO history rotation (Issue #3)."""
 
 import logging
 from dataclasses import dataclass, field
@@ -16,6 +16,7 @@ class ConversationSession:
     channel_id: str
     thread_ts: Optional[str]
     user_id: str
+    max_history_turns: int = 20
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_active_at: datetime = field(default_factory=datetime.utcnow)
     history: List[Dict[str, str]] = field(default_factory=list)  # [{"role": "user"|"assistant", "content": "..."}]
@@ -31,22 +32,37 @@ class ConversationSession:
         self.last_active_at = datetime.utcnow()
 
     def add_user_message(self, content: str) -> None:
-        """Append a user message to session history."""
+        """Append a user message to session history with FIFO rotation."""
         self.history.append({"role": "user", "content": content})
+        self._trim_history()
         self.touch()
 
     def add_assistant_message(self, content: str) -> None:
-        """Append an assistant response to session history."""
+        """Append an assistant response to session history with FIFO rotation."""
         self.history.append({"role": "assistant", "content": content})
+        self._trim_history()
         self.touch()
+
+    def _trim_history(self) -> None:
+        """Keep only the latest max_history_turns messages to prevent memory/context explosion."""
+        if len(self.history) > self.max_history_turns:
+            trimmed_count = len(self.history) - self.max_history_turns
+            self.history = self.history[-self.max_history_turns:]
+            logger.debug(f"Trimmed {trimmed_count} older turns from session {self.session_key}")
 
 
 class SessionManager:
     """Thread-safe in-memory session manager supporting both thread-scoped and channel-scoped sessions."""
 
-    def __init__(self, ttl_hours: int = 2, mode: Literal["thread", "channel"] = "thread"):
+    def __init__(
+        self,
+        ttl_hours: int = 2,
+        mode: Literal["thread", "channel"] = "thread",
+        max_history_turns: int = 20,
+    ):
         self.ttl_hours = ttl_hours
         self.mode = mode
+        self.max_history_turns = max_history_turns
         self._sessions: Dict[str, ConversationSession] = {}
 
     def _make_key(self, channel_id: str, thread_ts: Optional[str] = None) -> str:
@@ -83,6 +99,7 @@ class SessionManager:
                 channel_id=channel_id,
                 thread_ts=thread_ts if self.mode == "thread" else None,
                 user_id=user_id,
+                max_history_turns=self.max_history_turns,
             )
             self._sessions[key] = session
             logger.info(f"Created new conversation session: {key} (mode={self.mode}) for user {user_id}")

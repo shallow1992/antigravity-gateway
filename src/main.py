@@ -1,10 +1,11 @@
-"""Application entrypoint with Socket Mode, Auto-Join, and Graceful Shutdown."""
+"""Application entrypoint with Socket Mode, Auto-Join, and Graceful Task Shutdown (Issue #6)."""
 
 import asyncio
 import logging
 import signal
 import sys
 from pathlib import Path
+from typing import Set
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_sdk.errors import SlackApiError
 
@@ -57,6 +58,8 @@ async def auto_join_public_channels(app, logger):
                 break
         if joined_count > 0:
             logger.info(f"✨ Successfully auto-joined {joined_count} public channel(s).")
+    except asyncio.CancelledError:
+        logger.debug("Auto-join background task cancelled.")
     except Exception as e:
         logger.warning(f"Auto-join channels scan encountered an error: {e}")
 
@@ -77,6 +80,7 @@ async def main():
     logger.info(f"📁 Target Workspace: {settings.TARGET_WORKSPACE_PATH}")
     logger.info(f"🎛️  Session Mode: {settings.SESSION_MODE.upper()}")
     logger.info(f"🤖 Auto-Join Channels: {settings.AUTO_JOIN_CHANNELS}")
+    logger.info(f"⏱️  Agent Timeout: {settings.AGENT_TIMEOUT_SEC}s / Max Turns: {settings.MAX_HISTORY_TURNS}")
     logger.info(f"🔒 Allowed Users: {settings.allowed_user_ids or 'All (Wildcard)'}")
     logger.info(f"💬 Allowed Channels: {settings.allowed_channel_ids or 'All'}")
     logger.info(
@@ -94,6 +98,7 @@ async def main():
     session_manager = SessionManager(
         ttl_hours=settings.SESSION_TTL_HOURS,
         mode=settings.SESSION_MODE,
+        max_history_turns=settings.MAX_HISTORY_TURNS,
     )
     agent_runner = AgentRunner(settings=settings)
 
@@ -105,9 +110,13 @@ async def main():
         agent_runner=agent_runner,
     )
 
-    # Trigger background auto-join if enabled
+    # Track all background tasks for graceful shutdown (Issue #6)
+    background_tasks: Set[asyncio.Task] = set()
+
     if settings.AUTO_JOIN_CHANNELS:
-        asyncio.create_task(auto_join_public_channels(app, logger))
+        task = asyncio.create_task(auto_join_public_channels(app, logger))
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
 
     handler = AsyncSocketModeHandler(app, settings.SLACK_APP_TOKEN)
 
@@ -128,16 +137,24 @@ async def main():
     logger.info("⚡️ Antigravity Gateway is connecting to Slack Socket Mode...")
 
     handler_task = asyncio.create_task(handler.start_async())
+    background_tasks.add(handler_task)
+    handler_task.add_done_callback(background_tasks.discard)
 
     try:
         await stop_event.wait()
     except asyncio.CancelledError:
         pass
     finally:
-        logger.info("Closing Socket Mode connection...")
+        logger.info("Closing Socket Mode connection and cleaning up background tasks...")
         await handler.close_async()
-        handler_task.cancel()
-        logger.info("🛑 Gateway stopped successfully.")
+
+        # Cancel all remaining background tasks cleanly
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+
+        logger.info("🛑 Gateway stopped gracefully.")
 
 
 if __name__ == "__main__":

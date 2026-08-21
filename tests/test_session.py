@@ -1,4 +1,4 @@
-"""Unit tests for SessionManager (supporting thread-scoped and channel-scoped modes)."""
+"""Unit tests for SessionManager (supporting dual modes and FIFO history rotation)."""
 
 import unittest
 from datetime import datetime, timedelta
@@ -11,7 +11,6 @@ class TestSessionManager(unittest.TestCase):
         session1 = manager.get_or_create_session("C123", "1111.2222", "U123")
         session2 = manager.get_or_create_session("C123", "3333.4444", "U123")
 
-        # Two different threads should have different sessions
         self.assertNotEqual(session1.session_key, session2.session_key)
         self.assertEqual(session1.session_key, "C123:1111.2222")
         self.assertEqual(session2.session_key, "C123:3333.4444")
@@ -21,7 +20,6 @@ class TestSessionManager(unittest.TestCase):
         session1 = manager.get_or_create_session("C123", "1111.2222", "U123")
         session2 = manager.get_or_create_session("C123", "3333.4444", "U123")
 
-        # In channel mode, both share the same channel session
         self.assertEqual(session1.session_key, "C123")
         self.assertEqual(session2.session_key, "C123")
         self.assertEqual(session1, session2)
@@ -36,6 +34,19 @@ class TestSessionManager(unittest.TestCase):
         self.assertEqual(session.history[0], {"role": "user", "content": "Hello"})
         self.assertEqual(session.history[1], {"role": "assistant", "content": "Hi there!"})
 
+    def test_fifo_history_trimming(self):
+        # Test max_history_turns trimming (Issue #3)
+        manager = SessionManager(ttl_hours=2, mode="thread", max_history_turns=4)
+        session = manager.get_or_create_session("C123", "1111.2222", "U123")
+
+        # Add 6 messages (exceeding limit of 4)
+        for i in range(6):
+            session.add_user_message(f"Msg {i}")
+
+        self.assertEqual(len(session.history), 4)
+        self.assertEqual(session.history[0]["content"], "Msg 2")
+        self.assertEqual(session.history[3]["content"], "Msg 5")
+
     def test_clear_session(self):
         manager = SessionManager(ttl_hours=2, mode="thread")
         manager.get_or_create_session("C123", "1111.2222", "U123")
@@ -48,7 +59,6 @@ class TestSessionManager(unittest.TestCase):
     def test_ttl_expiration(self):
         manager = SessionManager(ttl_hours=2, mode="thread")
         session = manager.get_or_create_session("C123", "1111.2222", "U123")
-        # Artificially age the session past 2 hours
         session.last_active_at = datetime.utcnow() - timedelta(hours=3)
 
         self.assertIsNone(manager.get_session("C123", "1111.2222"))

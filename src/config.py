@@ -75,9 +75,17 @@ class Settings(BaseSettings):
         default=2,
         description="TTL (hours) before an inactive conversation session expires",
     )
+    MAX_HISTORY_TURNS: int = Field(
+        default=20,
+        description="Max message turns retained in conversation session (FIFO rotation)",
+    )
     THROTTLING_INTERVAL_SEC: float = Field(
         default=0.8,
         description="Minimum seconds between Slack message in-place updates to prevent rate limiting",
+    )
+    AGENT_TIMEOUT_SEC: int = Field(
+        default=300,
+        description="Maximum execution timeout in seconds for agent.chat (prevents hanging)",
     )
 
     # Logging

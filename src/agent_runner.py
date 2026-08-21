@@ -1,4 +1,4 @@
-"""Antigravity Agent execution runner with thoughts streaming and rate-limit throttling."""
+"""Antigravity Agent execution runner with thoughts streaming, rate-limit throttling, and timeout (Issue #2)."""
 
 import asyncio
 import logging
@@ -10,7 +10,6 @@ logger = logging.getLogger("gateway.agent")
 try:
     from google.antigravity import Agent, CapabilitiesConfig, LocalAgentConfig
 except ImportError:
-    # Graceful fallback for mock/testing environments without google-antigravity wheel
     logger.warning("google-antigravity package not installed. Running in mock/compatibility mode.")
     Agent = None
     LocalAgentConfig = None
@@ -21,12 +20,13 @@ from src.session import ConversationSession
 
 
 class AgentRunner:
-    """Manages Antigravity SDK Agent lifecycle and streams progress."""
+    """Manages Antigravity SDK Agent lifecycle, streams progress, and enforces execution timeouts."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self.workspace_path = settings.TARGET_WORKSPACE_PATH
         self.throttle_sec = settings.THROTTLING_INTERVAL_SEC
+        self.timeout_sec = getattr(settings, "AGENT_TIMEOUT_SEC", 300)
 
     def _build_capabilities(self) -> Any:
         """Create CapabilitiesConfig based on application settings."""
@@ -56,7 +56,7 @@ class AgentRunner:
             return prompt
 
         history_lines = []
-        for msg in session.history[-6:]:  # Keep last 3 turns
+        for msg in session.history[-6:]:  # Keep last 3 turns in prompt context
             role = "User" if msg["role"] == "user" else "Assistant"
             history_lines.append(f"{role}: {msg['content']}")
 
@@ -68,24 +68,21 @@ class AgentRunner:
             f"{prompt}"
         )
 
-    async def execute_prompt(
+    async def _execute_agent_internal(
         self,
-        prompt: str,
+        full_prompt: str,
         session: ConversationSession,
         on_progress: Optional[Callable[[str], Coroutine[Any, Any, None]]] = None,
     ) -> str:
-        """Execute prompt against Antigravity agent and stream thoughts/tool calls."""
-        full_prompt = self._build_prompt_with_history(prompt, session)
-
+        """Internal execution logic."""
         if Agent is None or LocalAgentConfig is None:
-            # Fallback mock response for environments without compiled SDK binary
             logger.info("Executing mock agent response (SDK unavailable)")
             if on_progress:
                 await on_progress("🧠 *思考中...* (ローカルファイルを検索しています)")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
                 await on_progress("🔍 `src/` 配下のソースコードを解析中...")
-                await asyncio.sleep(0.5)
-            return f"（Mock Antigravity 応答）\n受信プロンプト: `{prompt}`\n対象ワークスペース: `{self.workspace_path}`"
+                await asyncio.sleep(0.3)
+            return f"（Mock Antigravity 応答）\n受信プロンプト: `{full_prompt}`\n対象ワークスペース: `{self.workspace_path}`"
 
         config = LocalAgentConfig(
             system_instructions=self._build_system_instructions(),
@@ -112,17 +109,15 @@ class AgentRunner:
         async with Agent(config) as agent:
             response = await agent.chat(full_prompt)
 
-            # Stream thinking reasoning deltas in background
             async def _stream_thoughts():
                 try:
                     async for thought in response.thoughts:
-                        current_status_lines.append(f"• {thought.strip()}")
-                        summary = "\n".join(current_status_lines[-3:])  # Show latest 3 thoughts
+                        current_status_lines.append(f"• {thought.strip()[:100]}")
+                        summary = "\n".join(current_status_lines[-3:])
                         await _throttled_progress_update(f"🧠 *思考中...*\n{summary}")
                 except Exception as e:
                     logger.debug(f"Thoughts stream closed: {e}")
 
-            # Stream tool executions in background
             async def _stream_tools():
                 try:
                     async for call in response.tool_calls:
@@ -132,7 +127,6 @@ class AgentRunner:
                 except Exception as e:
                     logger.debug(f"Tool calls stream closed: {e}")
 
-            # Collect final answer tokens
             thoughts_task = asyncio.create_task(_stream_thoughts())
             tools_task = asyncio.create_task(_stream_tools())
 
@@ -146,3 +140,21 @@ class AgentRunner:
 
             final_text = "".join(tokens).strip()
             return final_text
+
+    async def execute_prompt(
+        self,
+        prompt: str,
+        session: ConversationSession,
+        on_progress: Optional[Callable[[str], Coroutine[Any, Any, None]]] = None,
+    ) -> str:
+        """Execute prompt against Antigravity agent with a timeout."""
+        full_prompt = self._build_prompt_with_history(prompt, session)
+
+        try:
+            return await asyncio.wait_for(
+                self._execute_agent_internal(full_prompt, session, on_progress),
+                timeout=self.timeout_sec,
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Agent execution timed out after {self.timeout_sec} seconds")
+            return f"⏱️ *エージェントの処理が制限時間 ({self.timeout_sec}秒) を超過したためタイムアウトしました。*"
