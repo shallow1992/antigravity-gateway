@@ -1,5 +1,6 @@
 """Integration tests for Slack Bolt event handlers and slash commands (Issue #7)."""
 
+import inspect
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -81,9 +82,25 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
 
         self.agent_runner._execute_agent_internal = _mock_internal
 
-    def _get_listeners(self, app):
-        """Retrieve listeners list compatible with both sync App and AsyncApp."""
-        return getattr(app, "_async_listeners", getattr(app, "_listeners", []))
+    async def _invoke_matching_listener(self, app, keyword, **kwargs):
+        """Helper to find and invoke the matching AsyncApp listener function."""
+        listeners = getattr(app, "_async_listeners", getattr(app, "_listeners", []))
+        for listener in listeners:
+            matchers_str = str(getattr(listener, "matchers", []))
+            if keyword in matchers_str or keyword in str(getattr(listener, "pattern", "")):
+                func = getattr(listener, "ack_function", None)
+                if not func and hasattr(listener, "lazy_functions") and listener.lazy_functions:
+                    func = listener.lazy_functions[0]
+                if not func and hasattr(listener, "handler"):
+                    func = listener.handler
+                if func:
+                    sig = inspect.signature(func)
+                    call_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                    res = func(**call_kwargs)
+                    if inspect.isawaitable(res):
+                        await res
+                    return True
+        return False
 
     @unittest.skipUnless(HAS_SLACK_BOLT, "slack_bolt is required for app integration test")
     async def test_authorized_mention_flow(self):
@@ -101,11 +118,14 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
             "ts": "1111.2222",
         }
 
-        for listener in self._get_listeners(app):
-            if getattr(listener, "pattern", None) == "app_mention" or "app_mention" in str(getattr(listener, "matchers", [])):
-                await listener.handler(body={"event": event}, client=mock_client, payload=event, event=event)
-                break
-
+        invoked = await self._invoke_matching_listener(
+            app=app,
+            keyword="app_mention",
+            event=event,
+            client=mock_client,
+            body={"event": event},
+        )
+        self.assertTrue(invoked)
         self.assertGreater(len(mock_client.posted_messages), 0)
         self.assertGreater(len(mock_client.updated_messages), 0)
         final_update = mock_client.updated_messages[-1]["text"]
@@ -127,11 +147,14 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
             "ts": "1111.3333",
         }
 
-        for listener in self._get_listeners(app):
-            if getattr(listener, "pattern", None) == "app_mention" or "app_mention" in str(getattr(listener, "matchers", [])):
-                await listener.handler(body={"event": event}, client=mock_client, payload=event, event=event)
-                break
-
+        invoked = await self._invoke_matching_listener(
+            app=app,
+            keyword="app_mention",
+            event=event,
+            client=mock_client,
+            body={"event": event},
+        )
+        self.assertTrue(invoked)
         self.assertEqual(len(mock_client.updated_messages), 0)
         self.assertIn("実行権限がありません", mock_client.posted_messages[0]["text"])
 
@@ -151,11 +174,15 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
         }
         ack = AsyncMock()
 
-        for listener in self._get_listeners(app):
-            if getattr(listener, "pattern", None) == "/agy" or "/agy" in str(getattr(listener, "matchers", [])):
-                await listener.handler(ack=ack, command=command, client=mock_client, body=command)
-                break
-
+        invoked = await self._invoke_matching_listener(
+            app=app,
+            keyword="/agy",
+            ack=ack,
+            command=command,
+            client=mock_client,
+            body=command,
+        )
+        self.assertTrue(invoked)
         ack.assert_awaited_once()
         self.assertEqual(len(mock_client.ephemeral_messages), 1)
         self.assertIn("Antigravity Gateway 稼働状況", mock_client.ephemeral_messages[0]["text"])
