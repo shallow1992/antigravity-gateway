@@ -15,17 +15,16 @@ except ImportError:
     LocalAgentConfig = None
     CapabilitiesConfig = None
 
-from src.config import Settings
 from src.session import ConversationSession
 
 
 class AgentRunner:
     """Manages Antigravity SDK Agent lifecycle, streams progress, and enforces execution timeouts."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Any):
         self.settings = settings
-        self.workspace_path = settings.TARGET_WORKSPACE_PATH
-        self.throttle_sec = settings.THROTTLING_INTERVAL_SEC
+        self.workspace_path = getattr(settings, "TARGET_WORKSPACE_PATH", "/workspace")
+        self.throttle_sec = getattr(settings, "THROTTLING_INTERVAL_SEC", 0.8)
         self.timeout_sec = getattr(settings, "AGENT_TIMEOUT_SEC", 300)
 
     def _build_capabilities(self) -> Any:
@@ -33,9 +32,9 @@ class AgentRunner:
         if CapabilitiesConfig is None:
             return None
         return CapabilitiesConfig(
-            allow_read=self.settings.ALLOW_FILE_READ,
-            allow_write=self.settings.ALLOW_FILE_WRITE,
-            allow_commands=self.settings.ALLOW_RUN_COMMAND,
+            allow_read=getattr(self.settings, "ALLOW_FILE_READ", True),
+            allow_write=getattr(self.settings, "ALLOW_FILE_WRITE", False),
+            allow_commands=getattr(self.settings, "ALLOW_RUN_COMMAND", False),
         )
 
     def _build_system_instructions(self) -> str:
@@ -79,9 +78,9 @@ class AgentRunner:
             logger.info("Executing mock agent response (SDK unavailable)")
             if on_progress:
                 await on_progress("🧠 *思考中...* (ローカルファイルを検索しています)")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.01)
                 await on_progress("🔍 `src/` 配下のソースコードを解析中...")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.01)
             return f"（Mock Antigravity 応答）\n受信プロンプト: `{full_prompt}`\n対象ワークスペース: `{self.workspace_path}`"
 
         config = LocalAgentConfig(
