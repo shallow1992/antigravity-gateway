@@ -1,12 +1,10 @@
 """Integration tests for Slack Bolt event handlers and slash commands (Issue #7)."""
 
-import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 try:
-    from slack_bolt.async_app import AsyncApp
     from src.bot import create_app
     HAS_SLACK_BOLT = True
 except ImportError:

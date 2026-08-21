@@ -1,8 +1,6 @@
 """Configuration module using Pydantic Settings."""
 
-import os
-from pathlib import Path
-from typing import List, Literal, Set
+from typing import Literal, Set
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

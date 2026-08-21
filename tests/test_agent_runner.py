@@ -57,18 +57,16 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[Current User Prompt]\nSecond question", full_prompt)
 
     async def test_timeout_enforcement(self):
-        # Set ultra-short timeout to trigger timeout handling
         timeout_settings = SimpleNamespace(
             TARGET_WORKSPACE_PATH="/tmp/workspace",
             THROTTLING_INTERVAL_SEC=0.1,
-            AGENT_TIMEOUT_SEC=0.001,  # 1 millisecond timeout
+            AGENT_TIMEOUT_SEC=0.001,
             ALLOW_FILE_READ=True,
             ALLOW_FILE_WRITE=False,
             ALLOW_RUN_COMMAND=False,
         )
         runner_with_timeout = AgentRunner(timeout_settings)
-        
-        # Override internal to simulate long delay
+
         async def _slow_agent(*args, **kwargs):
             await asyncio.sleep(0.1)
             return "Done"
