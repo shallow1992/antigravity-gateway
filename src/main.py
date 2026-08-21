@@ -6,6 +6,10 @@ import signal
 import sys
 from pathlib import Path
 from typing import Set
+
+# Ensure project root is in sys.path across all execution modes
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_sdk.errors import SlackApiError
 

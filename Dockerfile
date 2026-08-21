@@ -31,8 +31,9 @@ RUN mkdir -p /app/artifacts /app/logs && \
 # 実行ユーザーの切り替え (非root)
 USER appuser
 
-# 環境変数の初期値
+# 環境変数の初期値 (PYTHONPATHを設定してsrcモジュールを解決)
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
     TARGET_WORKSPACE_PATH=/workspace \
     LOG_LEVEL=INFO
 

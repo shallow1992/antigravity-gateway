@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   gateway:
     build:
@@ -45,6 +43,7 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - TARGET_WORKSPACE_PATH=/workspace
     volumes:
       # 操作対象のコードリポジトリ
