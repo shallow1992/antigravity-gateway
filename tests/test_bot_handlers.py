@@ -81,6 +81,10 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
 
         self.agent_runner._execute_agent_internal = _mock_internal
 
+    def _get_listeners(self, app):
+        """Retrieve listeners list compatible with both sync App and AsyncApp."""
+        return getattr(app, "_async_listeners", getattr(app, "_listeners", []))
+
     @unittest.skipUnless(HAS_SLACK_BOLT, "slack_bolt is required for app integration test")
     async def test_authorized_mention_flow(self):
         app = create_app(
@@ -97,7 +101,7 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
             "ts": "1111.2222",
         }
 
-        for listener in app._listeners:
+        for listener in self._get_listeners(app):
             if getattr(listener, "pattern", None) == "app_mention" or "app_mention" in str(getattr(listener, "matchers", [])):
                 await listener.handler(body={"event": event}, client=mock_client, payload=event, event=event)
                 break
@@ -123,7 +127,7 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
             "ts": "1111.3333",
         }
 
-        for listener in app._listeners:
+        for listener in self._get_listeners(app):
             if getattr(listener, "pattern", None) == "app_mention" or "app_mention" in str(getattr(listener, "matchers", [])):
                 await listener.handler(body={"event": event}, client=mock_client, payload=event, event=event)
                 break
@@ -147,7 +151,7 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
         }
         ack = AsyncMock()
 
-        for listener in app._listeners:
+        for listener in self._get_listeners(app):
             if getattr(listener, "pattern", None) == "/agy" or "/agy" in str(getattr(listener, "matchers", [])):
                 await listener.handler(ack=ack, command=command, client=mock_client, body=command)
                 break
