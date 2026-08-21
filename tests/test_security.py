@@ -36,12 +36,18 @@ class TestSecurityGuard(unittest.TestCase):
         slack_app_dummy = "".join(["x", "a", "p", "p", "-", "1", "-", "A12345678", "-", "12345678", "-", "abcdef123456"])
         gemini_dummy = "".join(["A", "I", "z", "a", "SyD1234567890abcdefghijklmnopqrstuv"])
         github_dummy = "".join(["g", "h", "p", "_", "1234567890abcdefghijklmnopqrstuvwxyz"])
+        openai_dummy = "".join(["s", "k", "-", "proj-", "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP"])
+        anthropic_dummy = "".join(["s", "k", "-", "ant-", "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP"])
+        bearer_dummy = "".join(["B", "e", "a", "r", "e", "r", " ", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0"])
 
         sample_text = (
             f"Slack Bot: {slack_bot_dummy}\n"
             f"Slack App: {slack_app_dummy}\n"
             f"Gemini Key: {gemini_dummy}\n"
             f"GitHub Token: {github_dummy}\n"
+            f"OpenAI Key: {openai_dummy}\n"
+            f"Anthropic Key: {anthropic_dummy}\n"
+            f"Auth Header: {bearer_dummy}\n"
         )
         masked = self.security_guard.mask_secrets(sample_text)
         self.assertNotIn("xoxb", masked)
@@ -52,6 +58,12 @@ class TestSecurityGuard(unittest.TestCase):
         self.assertIn("[REDACTED_GEMINI_API_KEY]", masked)
         self.assertNotIn("ghp_", masked)
         self.assertIn("[REDACTED_GITHUB_TOKEN]", masked)
+        self.assertNotIn(openai_dummy, masked)
+        self.assertIn("[REDACTED_OPENAI_API_KEY]", masked)
+        self.assertNotIn(anthropic_dummy, masked)
+        self.assertIn("[REDACTED_ANTHROPIC_API_KEY]", masked)
+        self.assertNotIn("eyJhbGciOi", masked)
+        self.assertIn("[REDACTED_BEARER_TOKEN]", masked)
 
     def test_safe_file_path(self):
         workspace = Path(self.temp_dir.name) / "workspace"
@@ -66,6 +78,13 @@ class TestSecurityGuard(unittest.TestCase):
         outside_file = Path(self.temp_dir.name) / "passwd"
         outside_file.touch()
         self.assertFalse(self.security_guard.is_safe_file_path(str(outside_file), workspace_root=str(workspace)))
+
+        # Boundary prefix traversal (/workspace_fake vs /workspace)
+        fake_workspace = Path(self.temp_dir.name) / "workspace_fake"
+        fake_workspace.mkdir()
+        fake_file = fake_workspace / "evil.py"
+        fake_file.touch()
+        self.assertFalse(self.security_guard.is_safe_file_path(str(fake_file), workspace_root=str(workspace)))
 
         # Sensitive files
         env_file = workspace / ".env"

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger("gateway.security")
 
-# Regex patterns for identifying common API keys and tokens to mask
+# Regex patterns for identifying common API keys, tokens, and credentials to mask
 SECRET_PATTERNS = [
     # Slack Tokens
     (re.compile(r"xoxb-[0-9]{10,14}-[0-9]{10,14}-[a-zA-Z0-9]{24}"), "[REDACTED_SLACK_BOT_TOKEN]"),
@@ -21,6 +21,12 @@ SECRET_PATTERNS = [
     # GitHub Personal Access Tokens
     (re.compile(r"ghp_[a-zA-Z0-9]{36}"), "[REDACTED_GITHUB_TOKEN]"),
     (re.compile(r"github_pat_[a-zA-Z0-9_]{82}"), "[REDACTED_GITHUB_PAT]"),
+    # Anthropic API Keys (checked before generic sk- to prevent prefix collision)
+    (re.compile(r"sk-ant-[a-zA-Z0-9_-]{32,}"), "[REDACTED_ANTHROPIC_API_KEY]"),
+    # OpenAI API Keys
+    (re.compile(r"sk-(?!ant-)(?:proj-)?[a-zA-Z0-9_-]{32,}"), "[REDACTED_OPENAI_API_KEY]"),
+    # Generic Bearer Tokens
+    (re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{25,}", re.IGNORECASE), "Bearer [REDACTED_BEARER_TOKEN]"),
     # AWS Access Keys
     (re.compile(r"(?:AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}"), "[REDACTED_AWS_KEY]"),
     # Generic Private Keys
@@ -48,7 +54,7 @@ BLOCKED_COMMAND_PREFIXES = [
     "dd if=",
     "chmod -R 777",
     "chown -R",
-    ":(){ :|:& };:", # Fork bomb
+    ":(){ :|:& };:",  # Fork bomb
     "sudo",
 ]
 
@@ -73,7 +79,6 @@ class SecurityGuard:
         """Check if the given Slack user ID is authorized."""
         if not user_id:
             return False
-        # If whitelist is empty or contains wildcard "*", allow all
         if not self.allowed_user_ids or "*" in self.allowed_user_ids:
             return True
         return user_id in self.allowed_user_ids
@@ -81,11 +86,9 @@ class SecurityGuard:
     def is_channel_allowed(self, channel_id: Optional[str], is_dm: bool = False) -> bool:
         """Check if interaction in the given channel is allowed."""
         if is_dm:
-            # Direct Messages are always allowed if user is authorized
             return True
         if not channel_id:
             return False
-        # If whitelist is empty, allow all channels
         if not self.allowed_channel_ids or "*" in self.allowed_channel_ids:
             return True
         return channel_id in self.allowed_channel_ids
@@ -100,13 +103,13 @@ class SecurityGuard:
         return sanitized
 
     def is_safe_file_path(self, file_path: str, workspace_root: str = "/workspace") -> bool:
-        """Validate that a file path is within workspace and not on the sensitive file blacklist."""
+        """Validate that a file path is strictly within workspace using Path.is_relative_to."""
         try:
             target = Path(file_path).resolve()
             root = Path(workspace_root).resolve()
 
-            # Path traversal check
-            if not str(target).startswith(str(root)):
+            # Strict Path traversal check using is_relative_to (Python 3.9+)
+            if not target.is_relative_to(root):
                 logger.warning(f"Blocked path traversal attempt: {file_path} (root: {workspace_root})")
                 return False
 
