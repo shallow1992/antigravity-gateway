@@ -9,13 +9,16 @@
 ## 🌟 主な特徴
 
 - 🎮 **Claude Code 同等の Remote Control**: スマホの Slack からローカル PC 上のコードを直接編集・テスト実行・Git 操作。
+- 💎 **Google Pro サブスクリプション完全対応**: 従量課金や厳しいレート制限のある API キーを廃止し、**Google Pro アカウントの権限で追加料金ゼロ・使い放題**。
+- 🖥️ **Web 管理ダッシュボード (`http://localhost:8080`)**: ブラウザから **1 クリックで Google Pro 認証** を完了。ターミナルでの面倒な認証作業は不要。
 - 🏛️ **Antigravity 全公式スラッシュコマンド網羅**: `/goal`, `/grill-me`, `/btw`, `/browser`, `/teamwork`, `/learn`, `/guide`, `/customs`, `/reset`, `/status`, `/help` に完全対応。
 - 💡 **`/btw`（脇道質問）サポート**: メインの会話履歴を一切汚さずに、ちょっとした疑問を単発で確認。
 - 🛡️ **堅牢な 5層防御セキュリティ**:
   - Slack ユーザー ID ホワイトリストによる厳格なアクセス制御
   - トークン・APIキーの自動マスキング (`[REDACTED_SECRET]`)
-  - 機密ファイル (`.env`, `*.key`, `id_rsa`) へのアクセス遮断
+  - 機密ファイル (`.env`, `*.key`, `id_rsa`, `jetski-standalone-oauth-token`) へのアクセス完全遮断
   - **Docker 堅牢化**: 非root (`1000:1000`)、特権剥奪 (`cap_drop: ALL`)、ルートファイルシステム読取専用 (`read_only: true`)
+  - **独立 Named Volume 隔離**: ホスト PC の `~/.gemini` には一切触れず、コンテナ専用ボリューム（`gemini_auth`）内で認証を隔離保持
   - **リソース上限管理**: メモリ上限 2GB / CPU 2コア設定により、ホスト PC の巻き添えクラッシュを物理的に防止
 - 🔌 **ゼロコンフィグ接続 (Socket Mode)**: ポート開放や固定 IP、ドメイン設定が一切不要。
 - 🎛️ **デュアルセッションモード**: スレッドごとに会話を分ける `thread` モードと、チャンネル直下で快適に対話する `channel` モードを自由に選択可能。
@@ -23,7 +26,18 @@
 
 ---
 
-## 🛠️ セットアップ手順（5ステップ）
+## 🛠️ セットアップ手順（6ステップ）
+
+```mermaid
+flowchart LR
+    S1["1. Slack App 作成<br/>(マニフェスト登録)"] --> S2["2. Google Cloud で<br/>OAuth ID 発行"]
+    S2 --> S3["3. .env 設定"]
+    S3 --> S4["4. Docker 起動"]
+    S4 --> S5["5. Web 画面で<br/>1-Click ログイン"]
+    S5 --> S6["6. Slack から<br/>話しかけて完了！"]
+```
+
+---
 
 ### Step 1: Slack App の作成（マニフェスト登録）
 
@@ -92,138 +106,133 @@
 
 ---
 
-### Step 2: 2つのトークンを取得
+### Step 2: Slack トークンを 2つ 取得
 
 1. **App-Level Token (`xapp-...`) の発行**:
    * 左メニュー **「Basic Information」** > **「App-Level Tokens」** で **「Generate Token and Scopes」** をクリック。
    * Token Name に `gateway-socket-token` と入力し、**「Add Scope」** で `connections:write` を追加して **「Generate」** をクリック。
    * 発行されたトークン（`xapp-...`）をコピーします。
-2. **Bot User OAuth Token (`xoxb-...`) の取得**:
-   * 左メニュー **「Install App」** > **「Install to Workspace」** をクリックして許可。
-   * 表示された **「Bot User OAuth Token」**（`xoxb-...`）をコピーします。
+
+2. **Bot Token (`xoxb-...`) の取得 & インストール**:
+   * 左メニュー **「Install App」** を開き、**「Install to Workspace」** をクリックしてワークスペースに許可します。
+   * 発行された **「Bot User OAuth Token」**（`xoxb-...`）をコピーします。
 
 ---
 
-### Step 3: 環境変数の設定 (`.env`)
+### Step 3: Google Cloud で OAuth クライアント ID を発行
 
-リポジトリ直下で設定ファイルを作成します。
+Google Pro アカウントで Web 認証を行うための無料クライアント ID を作成します。
+
+1. **[Google Cloud Console (認証情報画面)](https://console.cloud.google.com/apis/credentials)** を開きます。
+2. 画面上部の **「+ 認証情報を作成」** ➔ **「OAuth クライアント ID」** をクリックします。
+3. 以下の通り入力します：
+   * **アプリケーションの種類**: **`ウェブ アプリケーション`**
+   * **名前**: `Antigravity Gateway`（任意）
+   * **承認済みのリダイレクト URI**: **「+ URI を追加」** を押し、以下を入力：
+     ```text
+     http://localhost:8080/auth/callback
+     ```
+4. **「作成」** をクリックし、表示された **「クライアント ID」** と **「クライアント シークレット」** をコピーします。
+
+---
+
+### Step 4: `.env` ファイルの設定
+
+リポジトリ直下の [`.env`](.env) を開き、取得したトークンを設定します：
 
 ```bash
-cd antigravity-gateway
 cp .env.example .env
 ```
 
-`.env` を開き、取得したトークンと設定を入力します：
-
 ```ini
-# Slack 認証情報
-SLACK_BOT_TOKEN=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx
-SLACK_APP_TOKEN=xapp-1-xxxxxxxxxxx-xxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 1. Slack 認証情報 (Step 2 で取得)
+SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_APP_TOKEN=xapp-your-app-level-token
 
-# セッションモード & 自動参加
-SESSION_MODE=thread          # 'thread' (スレッドごと) または 'channel' (チャンネル直下)
-AUTO_JOIN_CHANNELS=true      # パブリックチャンネルへの一括自動参加
+# 2. Google Pro OAuth 連携設定 (Step 3 で取得)
+GOOGLE_OAUTH_CLIENT_ID=xxxxxxxxxxxx-xxxxxxxxxxxxxxxx.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx
 
-# セキュリティ設定
-# 自分の Slack メンバーID (Slackのプロフィール画面 > 「...」 > 「メンバーIDをコピー」で取得)
-ALLOWED_USER_IDS=U0123456789
-ALLOWED_CHANNEL_IDS=C0123456789
+# 3. セキュリティ設定 (ご自身の Slack ユーザー ID、または全員許可 "*")
+ALLOWED_USER_IDS=*
+ALLOWED_CHANNEL_IDS=
 
-# 操作対象リポジトリのパス
-TARGET_WORKSPACE_PATH=/Users/username/Workspace/your-project
+# 4. 操作対象のリポジトリの絶対パス
+TARGET_WORKSPACE_PATH=/Users/HirotakaAsako/Workspace/dev_angr
 
-# Remote Control 権限
+# 5. Remote Control 権限
 ALLOW_FILE_READ=true
-ALLOW_FILE_WRITE=true        # ファイル編集を許可
-ALLOW_RUN_COMMAND=true       # pytest や git などのコマンド実行を許可
+ALLOW_FILE_WRITE=true
+ALLOW_RUN_COMMAND=true
 ```
 
 ---
 
-### Step 4: Docker で起動
+### Step 5: Docker コンテナの起動
 
 ```bash
 docker compose up -d --build
 ```
 
-#### ログの確認（正常接続の確認）
-```bash
-docker compose logs -f
+---
+
+### Step 6: Web 管理ダッシュボードで 1-Click ログイン
+
+1. ブラウザで **`http://localhost:8080`** を開きます。
+2. **「Google アカウントでログイン (Pro 連携)」** ボタンをクリックします。
+3. Google の画面で Pro アカウントを選択し、「許可」をクリックします。
+4. 画面が **「🟢 Google Pro 連携中」** に切り替わればセットアップ完了です！
+
+---
+
+## 💬 使い方 & コマンドリファレンス
+
+Slack の任意のチャンネル（または Bot の DM）でメンションまたはスラッシュコマンドで対話します。
+
+### 1. 通常の対話（コード調査・質問）
+```text
+@Antigravity src/main.py の Graceful Shutdown の実装を説明して
 ```
 
-ログに `⚡️ Antigravity Gateway is connecting to Slack Socket Mode...` および `✨ Successfully auto-joined X public channel(s).` と表示されれば起動完了です！
+### 2. 脇道質問（`/btw` - メイン会話履歴を汚さない）
+メインタスクのコンテキストを維持したまま、単発の質問を行えます。
+```text
+/agy btw このリポジトリで使っている Python のバージョンは何？
+```
 
----
+### 3. 公式スラッシュコマンド体系一覧
 
-### Step 5: Slack からの動作確認
-
-Slack の任意のチャンネル（または Bot の DM）で以下を試してみましょう。
-
-1. **ステータス確認**:
-   ```text
-   /agy status
-   ```
-2. **通常対話（コード調査・Remote Control）**:
-   ```text
-   @Antigravity src/auth.py の実装内容を教えて
-   ```
-3. **自律ゴール達成モード**:
-   ```text
-   /agy goal pytest tests/ を実行して、落ちているテストをすべて修正して
-   ```
-4. **脇道質問（会話履歴を汚さない）**:
-   ```text
-   /agy btw このプロジェクトの Python バージョンは何？
-   ```
-
----
-
-## 🏛️ Antigravity スラッシュコマンド一覧
-
-| コマンド | 説明 |
+| コマンド | 説明・活用例 |
 | :--- | :--- |
-| **`/agy goal <目標>`** | 目標達成・テスト通過までエージェントが自律ループ実行 |
-| **`/agy grill-me <テーマ>`** | エージェントが人間に質問して設計の穴を詰める壁打ちモード |
-| **`/agy btw <質問>`** | メインの会話履歴を一切汚さずに単発回答 |
-| **`/agy browser <指示>`** | Webページ調査・ブラウザ自動化タスクを実行 |
-| **`/agy teamwork <タスク>`** | 複数サブエージェントによる並行・分担タスク実行 |
-| **`/agy schedule <指示>`** | タイマー・定期実行タスクの登録 |
-| **`/agy learn`** | 直前の修正・対話からルールを学習して永続化提案 |
-| **`/agy guide`** | Antigravity の公式ガイド・リファレンスを表示 |
-| **`/agy customs`** | カスタマイズ仕様（Skills/Rules/Hooks）を表示 |
-| **`/agy reset` / `clear`** | 現在の会話セッション履歴を初期化 |
-| **`/agy status`** | ワークスペース、Gitブランチ、実行権限、稼働状況を表示 |
-| **`/agy help`** | コマンド一覧と使い方をカード表示 |
-
-_※ すべてのコマンドはチャットメッセージ内でそのまま `/goal ...` や `/btw ...` と入力しても同様に動作します。_
+| **`/agy <指示>`** | 通常のプロンプト送信 |
+| **`/agy goal <目標>`** | **自律ゴール達成モード**: テストが通過するまで自律的に調査・修正・検証ループを実行 |
+| **`/agy grill-me <テーマ>`** | **設計インタビューモード**: 実装前のプランや設計について逆質問・深掘り壁打ち |
+| **`/agy btw <質問>`** | **会話履歴非汚染質問**: メインの対話履歴を汚さずに単発で質問・確認 |
+| **`/agy browser <指示>`** | **ブラウザ調査モード**: Web サイトの調査・ドキュメント取得 |
+| **`/agy teamwork <タスク>`** | **マルチエージェント協調**: 複数サブエージェントを立ち上げて並行分担 |
+| **`/agy learn`** | **ルール学習**: 直近の成功や修正内容から再利用可能なルール・教訓を抽出 |
+| **`/agy guide`** | **公式ガイド**: Antigravity の全体マニュアル・クイックリファレンス |
+| **`/agy customs`** | **カスタマイズガイド**: スキル・ルール・MCP・設定ファイルの仕様表示 |
+| **`/agy status`** | **稼働状況**: ワークスペース、Git ブランチ、実行権限カードの表示 |
+| **`/agy reset` / `/agy clear`** | **セッション初期化**: 現在のスレッド/チャンネルの対話履歴をリセット |
+| **`/agy help`** | **コマンドヘルプ**: 全コマンド一覧と説明の表示 |
 
 ---
 
-## 📂 ディレクトリ構成
+## 🔒 セキュリティアーキテクチャ
+
+本ゲートウェイは、ローカル PC の安全を確保するため **多層防御（5-Layer Defense）** を標準装備しています：
 
 ```text
-antigravity-gateway/
-├── README.md                           # 本ドキュメント (セットアップ＆全体ガイド)
-├── Dockerfile                          # 非root (UID 1000) + uv 高速マルチステージビルド
-├── docker-compose.yml                  # 堅牢化設定 (cap_drop ALL, read_only, メモリ2GB上限)
-├── .env.example                        # 環境変数ひな型
-├── pyproject.toml                      # 依存パッケージ & ruff / pytest 設定
-├── docs/                               # 体系化された設計ドキュメント
-│   ├── 01_discussion_and_decisions.md  # 検討記録・技術比較・意思決定理由
-│   ├── 02_architecture.md              # 全体アーキテクチャ・データフロー
-│   ├── 03_security_and_permissions.md  # 5層防御セキュリティ仕様
-│   ├── 04_roadmap_and_phases.md        # フェーズ1〜3のゴール・計画
-│   ├── 05_artifacts_and_ux.md          # Webビューワー・Markdown変換仕様
-│   ├── 06_detailed_design_phase1.md    # フェーズ1詳細設計書 (確定版)
-│   ├── 07_docker_design.md             # Docker堅牢化・リソース上限設計
-│   └── 08_setup_guide.md               # セットアップ＆運用手順書
-├── src/                                # 実装コード
-│   ├── config.py                       # 設定バリデーション
-│   ├── security.py                     # 認可・シークレットマスキング
-│   ├── session.py                      # セッション管理 & TTL
-│   ├── converter.py                    # GFM -> Slack mrkdwn 変換
-│   ├── agent_runner.py                 # Antigravity SDK 実行
-│   ├── bot.py                          # Slack Bolt アプリ & コマンドルーティング
-│   └── main.py                         # エントリーポイント & Socket Mode 起動
-└── tests/                              # 単体テスト (18件 ALL PASS)
+[Slack] ➔ ① ユーザーホワイトリスト (ALLOWED_USER_IDS)
+          ➔ ② コマンド・パストラバーサル検査 (Path.is_relative_to)
+          ➔ ③ 認証トークン・シークレット完全マスキング ([REDACTED_...])
+          ➔ ④ 独立 Docker Volume 隔離 (ホスト PC の ~/.gemini には一切触れない)
+          ➔ ⑤ Docker 堅牢化 (非root, 特権剥奪 ALL, read_only, メモリ2GB / 2CPU上限)
 ```
+
+---
+
+## 📜 ライセンス
+
+MIT License
