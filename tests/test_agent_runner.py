@@ -20,6 +20,14 @@ class TestAgentRunner(unittest.IsolatedAsyncioTestCase):
         self.runner = AgentRunner(self.mock_settings)
 
     async def test_execute_prompt_mock(self):
+        # Mock internal execution to avoid requiring real GEMINI_API_KEY in CI
+        async def _mock_internal(full_prompt, session, on_progress=None):
+            if on_progress:
+                await on_progress("🧠 *思考中...*")
+            return f"（Mock Antigravity 応答）\n受信プロンプト: `{full_prompt}`"
+
+        self.runner._execute_agent_internal = _mock_internal
+
         session = ConversationSession(
             session_key="C123:1111",
             channel_id="C123",

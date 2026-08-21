@@ -75,6 +75,12 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
         self.session_manager = SessionManager(ttl_hours=2, mode="thread")
         self.agent_runner = AgentRunner(self.settings)
 
+        # Mock agent execution to avoid requiring real GEMINI_API_KEY in CI
+        async def _mock_internal(full_prompt, session, on_progress=None):
+            return f"（Mock Antigravity 応答）\n受信プロンプト: `{full_prompt}`"
+
+        self.agent_runner._execute_agent_internal = _mock_internal
+
     @unittest.skipUnless(HAS_SLACK_BOLT, "slack_bolt is required for app integration test")
     async def test_authorized_mention_flow(self):
         app = create_app(
