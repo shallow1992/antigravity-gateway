@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: antigravity-gateway
+    restart: unless-stopped
+    
+    # 1. 非rootユーザーで実行 (UID 1000: GID 1000)
+    user: "1000:1000"
+    
+    # 2. Linux Capabilities (特権) 全剥奪
+    cap_drop:
+      - ALL
+      
+    # 3. 特権昇格の完全禁止
+    security_opt:
+      - no-new-privileges:true
+      
+    # 4. ルートファイルシステムの読み取り専用化 (改ざん・マルウェア防止)
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
+      
+    # 5. リソース上限設定 (ホストPC巻き添えクラッシュ防止)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+
+    # 6. ログローテーション (ディスク圧迫防止)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TARGET_WORKSPACE_PATH=/workspace
+    volumes:
+      # 操作対象のコードリポジトリ
+      - ${TARGET_WORKSPACE_PATH:-.}:/workspace:rw
+      # 成果物とログの永続化
+      - ./artifacts:/app/artifacts:rw
+      - ./logs:/app/logs:rw
+      # Antigravity 認証情報 (必要な場合)
+      - ~/.gemini:/home/appuser/.gemini:ro
