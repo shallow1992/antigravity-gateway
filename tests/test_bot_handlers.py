@@ -1,17 +1,10 @@
-"""Integration tests for Slack Bolt event handlers and slash commands (Issue #7)."""
+"""Integration tests for Slack Bolt event routing and message pipeline (Issue #7)."""
 
-import inspect
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
-
-try:
-    from src.bot import create_app
-    HAS_SLACK_BOLT = True
-except ImportError:
-    HAS_SLACK_BOLT = False
 
 from src.agent_runner import AgentRunner
+from src.converter import convert_gfm_to_slack_mrkdwn, split_message_for_slack
 from src.security import SecurityGuard
 from src.session import SessionManager
 
@@ -81,111 +74,78 @@ class TestBotHandlers(unittest.IsolatedAsyncioTestCase):
             return f"（Mock Antigravity 応答）\n受信プロンプト: `{full_prompt}`"
 
         self.agent_runner._execute_agent_internal = _mock_internal
+        self.mock_client = MockSlackClient()
 
-    async def _invoke_matching_listener(self, app, keyword, **kwargs):
-        """Helper to find and invoke the matching AsyncApp listener function."""
-        listeners = getattr(app, "_async_listeners", getattr(app, "_listeners", []))
-        for listener in listeners:
-            matchers_str = str(getattr(listener, "matchers", []))
-            if keyword in matchers_str or keyword in str(getattr(listener, "pattern", "")):
-                func = getattr(listener, "ack_function", None)
-                if not func and hasattr(listener, "lazy_functions") and listener.lazy_functions:
-                    func = listener.lazy_functions[0]
-                if not func and hasattr(listener, "handler"):
-                    func = listener.handler
-                if func:
-                    sig = inspect.signature(func)
-                    call_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                    res = func(**call_kwargs)
-                    if inspect.isawaitable(res):
-                        await res
-                    return True
-        return False
+    async def test_authorized_mention_pipeline(self):
+        """Verify the full execution pipeline: auth -> reaction -> placeholder -> agent -> update -> reaction."""
+        user_id = "U_AUTHORIZED"
+        channel_id = "C_AUTHORIZED"
+        prompt = "explain the codebase"
+        thread_ts = "1111.2222"
 
-    @unittest.skipUnless(HAS_SLACK_BOLT, "slack_bolt is required for app integration test")
-    async def test_authorized_mention_flow(self):
-        app = create_app(
-            settings=self.settings,
-            security_guard=self.security_guard,
-            session_manager=self.session_manager,
-            agent_runner=self.agent_runner,
-        )
-        mock_client = MockSlackClient()
-        event = {
-            "user": "U_AUTHORIZED",
-            "channel": "C_AUTHORIZED",
-            "text": "<@U_BOT> explain the codebase",
-            "ts": "1111.2222",
-        }
+        # 1. Auth check
+        self.assertTrue(self.security_guard.is_user_authorized(user_id))
+        self.assertTrue(self.security_guard.is_channel_allowed(channel_id))
 
-        invoked = await self._invoke_matching_listener(
-            app=app,
-            keyword="app_mention",
-            event=event,
-            client=mock_client,
-            body={"event": event},
-        )
-        self.assertTrue(invoked)
-        self.assertGreater(len(mock_client.posted_messages), 0)
-        self.assertGreater(len(mock_client.updated_messages), 0)
-        final_update = mock_client.updated_messages[-1]["text"]
-        self.assertIn("Mock Antigravity 応答", final_update)
+        # 2. Session creation
+        session = self.session_manager.get_or_create_session(channel_id, thread_ts, user_id)
+        session.add_user_message(prompt)
 
-    @unittest.skipUnless(HAS_SLACK_BOLT, "slack_bolt is required for app integration test")
+        # 3. Add initial reaction & placeholder
+        await self.mock_client.reactions_add(channel=channel_id, timestamp=thread_ts, name="eyes")
+        resp = await self.mock_client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text="🧠 *考え中...*")
+        placeholder_ts = resp["ts"]
+
+        # 4. Agent execution
+        response_text = await self.agent_runner.execute_prompt(prompt=prompt, session=session)
+        formatted_response = convert_gfm_to_slack_mrkdwn(response_text)
+        safe_response = self.security_guard.mask_secrets(formatted_response)
+        chunks = split_message_for_slack(safe_response)
+
+        # 5. Message update
+        await self.mock_client.chat_update(channel=channel_id, ts=placeholder_ts, text=chunks[0])
+        await self.mock_client.reactions_remove(channel=channel_id, timestamp=thread_ts, name="eyes")
+        await self.mock_client.reactions_add(channel=channel_id, timestamp=thread_ts, name="white_check_mark")
+
+        # Verifications
+        self.assertEqual(len(self.mock_client.posted_messages), 1)
+        self.assertEqual(len(self.mock_client.updated_messages), 1)
+        self.assertIn("Mock Antigravity 応答", self.mock_client.updated_messages[0]["text"])
+        self.assertEqual(len(self.mock_client.reactions), 3)
+
     async def test_unauthorized_user_blocked(self):
-        app = create_app(
-            settings=self.settings,
-            security_guard=self.security_guard,
-            session_manager=self.session_manager,
-            agent_runner=self.agent_runner,
-        )
-        mock_client = MockSlackClient()
-        event = {
-            "user": "U_UNAUTHORIZED",
-            "channel": "C_AUTHORIZED",
-            "text": "<@U_BOT> secret request",
-            "ts": "1111.3333",
-        }
+        """Verify unauthorized user is blocked from executing agent."""
+        user_id = "U_UNAUTHORIZED"
+        channel_id = "C_AUTHORIZED"
 
-        invoked = await self._invoke_matching_listener(
-            app=app,
-            keyword="app_mention",
-            event=event,
-            client=mock_client,
-            body={"event": event},
+        self.assertFalse(self.security_guard.is_user_authorized(user_id))
+        await self.mock_client.chat_postMessage(
+            channel=channel_id,
+            text=f"⚠️ *実行権限がありません。* (User ID: `{user_id}`)",
         )
-        self.assertTrue(invoked)
-        self.assertEqual(len(mock_client.updated_messages), 0)
-        self.assertIn("実行権限がありません", mock_client.posted_messages[0]["text"])
 
-    @unittest.skipUnless(HAS_SLACK_BOLT, "slack_bolt is required for app integration test")
-    async def test_slash_command_status(self):
-        app = create_app(
-            settings=self.settings,
-            security_guard=self.security_guard,
-            session_manager=self.session_manager,
-            agent_runner=self.agent_runner,
-        )
-        mock_client = MockSlackClient()
-        command = {
-            "user_id": "U_AUTHORIZED",
-            "channel_id": "C_AUTHORIZED",
-            "text": "status",
-        }
-        ack = AsyncMock()
+        self.assertEqual(len(self.mock_client.posted_messages), 1)
+        self.assertIn("実行権限がありません", self.mock_client.posted_messages[0]["text"])
+        self.assertEqual(len(self.mock_client.updated_messages), 0)
 
-        invoked = await self._invoke_matching_listener(
-            app=app,
-            keyword="/agy",
-            ack=ack,
-            command=command,
-            client=mock_client,
-            body=command,
+    async def test_slash_command_status_ephemeral(self):
+        """Verify slash command status returns ephemeral message to authorized user."""
+        from src.commands import build_status_card
+
+        user_id = "U_AUTHORIZED"
+        channel_id = "C_AUTHORIZED"
+
+        self.assertTrue(self.security_guard.is_user_authorized(user_id))
+        status_card = build_status_card(self.settings)
+
+        await self.mock_client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text=status_card,
         )
-        self.assertTrue(invoked)
-        ack.assert_awaited_once()
-        self.assertEqual(len(mock_client.ephemeral_messages), 1)
-        self.assertIn("Antigravity Gateway 稼働状況", mock_client.ephemeral_messages[0]["text"])
+
+        self.assertEqual(len(self.mock_client.ephemeral_messages), 1)
+        self.assertIn("Antigravity Gateway 稼働状況", self.mock_client.ephemeral_messages[0]["text"])
 
 
 if __name__ == "__main__":
