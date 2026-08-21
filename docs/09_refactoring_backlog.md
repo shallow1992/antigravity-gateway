@@ -4,7 +4,7 @@
 
 ---
 
-## 📋 Issue 一覧と進捗状況（全 9 件 完了 ✅）
+## 📋 Issue 一覧と進捗状況（全 10 件 完了 ✅）
 
 | Issue ID | 種別 | タイトル | 優先度 | 状態 | GitHub リンク | 詳細ファイル |
 | :---: | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -17,6 +17,7 @@
 | **#7** | Test | Slackイベントハンドラーの結合テストスイート追加 (test_bot_handlers.py) | High | ✅ **完了 (Closed)** | [#7](https://github.com/shallow1992/antigravity-gateway/issues/7) | [issues/issue_07_bot_handlers_test.md](../issues/issue_07_bot_handlers_test.md) |
 | **#8** | Test | エージェントランナー非同期実行・タイムアウト・進捗スロットリングのテスト追加 | High | ✅ **完了 (Closed)** | [#8](https://github.com/shallow1992/antigravity-gateway/issues/8) | [issues/issue_08_agent_runner_test.md](../issues/issue_08_agent_runner_test.md) |
 | **#9** | Test & CI | 設定バリデーションテストおよび GitHub Actions 自動テスト CI の構築 | High | ✅ **完了 (Closed)** | [#9](https://github.com/shallow1992/antigravity-gateway/issues/9) | [issues/issue_09_config_test_and_ci.md](../issues/issue_09_config_test_and_ci.md) |
+| **#10** | Bug & Docker | Docker起動時の ModuleNotFoundError (src) 解消と Compose 構文警告修正 | High | ✅ **完了 (Closed)** | [#10](https://github.com/shallow1992/antigravity-gateway/issues/10) | [issues/issue_10_docker_pythonpath_and_compose_warning.md](../issues/issue_10_docker_pythonpath_and_compose_warning.md) |
 
 ---
 
