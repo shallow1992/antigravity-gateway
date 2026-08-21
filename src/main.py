@@ -84,7 +84,7 @@ async def main():
     logger.info("🚀 Starting Antigravity Gateway (CLI Wrapper & Web Dashboard)")
     logger.info(f"📁 Target Workspace: {settings.TARGET_WORKSPACE_PATH}")
     logger.info(f"🎛️  Session Mode: {settings.SESSION_MODE.upper()}")
-    logger.info(f"🌐 Web Dashboard: http://localhost:8080")
+    logger.info("🌐 Web Dashboard: http://localhost:8080")
     logger.info(f"⏱️  Agent Timeout: {settings.AGENT_TIMEOUT_SEC}s / Max Turns: {settings.MAX_HISTORY_TURNS}")
     logger.info(f"🔒 Allowed Users: {settings.allowed_user_ids or 'All (Wildcard)'}")
     logger.info(f"💬 Allowed Channels: {settings.allowed_channel_ids or 'All'}")
