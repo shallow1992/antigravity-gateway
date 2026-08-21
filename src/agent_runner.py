@@ -3,7 +3,9 @@
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any, Callable, Coroutine, List, Optional
+
+from src.session import ConversationSession
 
 logger = logging.getLogger("gateway.agent")
 
@@ -14,8 +16,6 @@ except ImportError:
     Agent = None
     LocalAgentConfig = None
     CapabilitiesConfig = None
-
-from src.session import ConversationSession
 
 
 class AgentRunner:

@@ -3,7 +3,7 @@
 import logging
 import re
 import subprocess
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 logger = logging.getLogger("gateway.commands")
 
