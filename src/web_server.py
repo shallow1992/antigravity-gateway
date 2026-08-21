@@ -211,10 +211,13 @@ class WebServerManager:
 
     async def handle_auth_login(self, request):
         """Generate Google OAuth 2.0 authorization URL and redirect user."""
+        client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+        if not client_id or client_id == "antigravity-gateway-client":
+            return web.HTTPFound("/?alert=⚠️ Google OAuth クライアント ID が未設定です。Google Cloud Console で発行した ID を .env の GOOGLE_OAUTH_CLIENT_ID に設定してください。")
+
         state = secrets.token_urlsafe(32)
         self._active_states.add(state)
 
-        client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "antigravity-gateway-client")
         redirect_uri = f"http://localhost:{self.port}/auth/callback"
 
         params = {

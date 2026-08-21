@@ -74,13 +74,14 @@ class TestWebServer(AioHTTPTestCase):
 
     async def test_auth_login_redirect(self):
         """Test /auth/login generates state and redirects to Google OAuth."""
-        resp = await self.client.get("/auth/login", allow_redirects=False)
-        self.assertEqual(resp.status, 302)
-        location = resp.headers.get("Location", "")
-        self.assertIn("accounts.google.com", location)
-        self.assertIn("client_id=", location)
-        self.assertIn("state=", location)
-        self.assertEqual(len(self.server_manager._active_states), 1)
+        with patch.dict("os.environ", {"GOOGLE_OAUTH_CLIENT_ID": "mock-test-client-id"}):
+            resp = await self.client.get("/auth/login", allow_redirects=False)
+            self.assertEqual(resp.status, 302)
+            location = resp.headers.get("Location", "")
+            self.assertIn("accounts.google.com", location)
+            self.assertIn("client_id=mock-test-client-id", location)
+            self.assertIn("state=", location)
+            self.assertEqual(len(self.server_manager._active_states), 1)
 
     async def test_auth_callback_invalid_state(self):
         """Test /auth/callback rejects invalid or expired state."""

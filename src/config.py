@@ -1,6 +1,6 @@
 """Configuration module using Pydantic Settings."""
 
-from typing import Literal, Set
+from typing import Literal, Optional, Set
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     SLACK_SIGNING_SECRET: str = Field(
         default="",
         description="Slack Signing Secret (optional for Socket Mode)",
+    )
+
+    # Google Pro OAuth 2.0 Credentials (Issue #12)
+    GOOGLE_OAUTH_CLIENT_ID: Optional[str] = Field(
+        default=None,
+        description="Google Cloud OAuth 2.0 Web Client ID (xxxx.apps.googleusercontent.com)",
+    )
+    GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = Field(
+        default=None,
+        description="Google Cloud OAuth 2.0 Web Client Secret (GOCSPX-...)",
     )
 
     # Security & Access Control
